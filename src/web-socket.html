@@ -1,0 +1,55 @@
+<link rel="import" href="../bower_components/polymer/polymer-element.html">
+
+<script>
+  'use strict';
+
+  class webSocket extends Polymer.Element{
+
+    static get is() { return 'web-socket' } 
+    static get properties() { return { url: String } }
+
+    constructor(){
+      super();
+    }
+    
+    connect(){
+      if (!this.url){
+        throw new TypeError("web-socket: no url set, set with url attribute or url property");
+      }
+
+      this._connection = new WebSocket(this.url, 'json');
+
+      this._connection.onopen = this._onOpen.bind(this);
+      this._connection.onmessage = this._onMessage.bind(this);
+    }
+
+    send(msgObj){
+      var msgJSON = JSON.stringify(msgObj);
+
+      this._connection.send(msgJSON);
+    }
+
+    sendString(msg){
+      this._connection.send(msg);
+    }
+
+    attributeChangedCallback(name, oldValue, newValue){
+      if (name === 'url' && oldValue !== newValue) {
+        this.url = newValue;
+      }
+    }
+
+    _onOpen(event){
+      this.dispatchEvent(new CustomEvent('websocket-open'));
+    }
+
+    _onMessage(event){
+      var msg = JSON.parse(event.data);
+
+      this.dispatchEvent(new CustomEvent('websocket-message', { detail: msg }))
+    }
+  }
+
+  customElements.define(webSocket.is, webSocket);
+
+</script>

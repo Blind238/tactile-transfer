@@ -1,0 +1,137 @@
+<link rel="import" href="../bower_components/polymer/polymer-element.html">
+<!--<script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>-->
+<script src="../bower_components/webrtc-adapter/release/adapter_no_global.js"></script>
+
+<script>
+
+  class webRTC extends Polymer.Element {
+    static get is() { return 'web-rtc' }
+
+    constructor(){
+      super();
+    }
+
+    connect(){
+      this._connection = new RTCPeerConnection();
+
+      this._assignNegotiationListeners(this._connection);
+
+      this._dataChannel = this._connection.createDataChannel('dataChannel');
+      this._dataChannel.binaryType = 'arraybuffer';
+
+      this._dataChannel.onopen = this._onDataChannelOpen.bind(this);
+      this._dataChannel.onclose = this._onDataChannelClose.bind(this);
+    }
+
+    send(data){
+      this._dataChannel.send(data);
+    }
+
+    _assignNegotiationListeners(connection){
+      connection.onnegotiationneeded = this._onNegotiationNeeded.bind(this);
+      connection.onicecandidate = this._onICECandidate.bind(this);
+      connection.oniceconnectionstatechange = this._onICEConnectionStateChange.bind(this);
+    }
+
+
+    _onICECandidate(event){
+      if (event.candidate) {
+        console.log('ICE candidate:', event.candidate);
+
+        this.dispatchEvent(new CustomEvent('webrtc-ice-candidate', { detail: event.candidate }));
+      }
+    }
+
+    _onICEConnectionStateChange(event){
+      console.log('ICE connection state changed:', event);
+
+      switch (this._connection.iceConnectionState) {
+        case 'closed':
+          console.log('ICE connection state closed');
+          break;
+        case 'failed':
+          console.log('ICE connection state failed');
+          break;
+        case 'disconnected':
+          console.log('ICE connection state disconnected');
+          break;
+        default:
+          console.log('ICE connection state ', this._connection.iceConnectionState);
+          break;
+      }
+    }
+
+    addIceCandidate(proposed){
+      var candidate = new RTCIceCandidate(proposed);
+      console.log('adding ICE candidate',candidate);
+
+      this._connection.addIceCandidate(candidate).catch(this._generalError);
+    }
+
+    _onNegotiationNeeded(event){
+      console.log('handling negotiation');
+      this._connection.createOffer()
+      .then( desc => {
+        this._connection.setLocalDescription(desc)
+        
+        // offer description to remote client
+        this.dispatchEvent(new CustomEvent('webrtc-ice-offer', { detail: desc }));
+      })
+      .catch(this._handleDescriptionError);
+    }
+    
+    // reactive (recipient)
+    setRemoteDescription(desc){
+      if(!this._connection){
+        this._connection = new RTCPeerConnection();
+        this._assignNegotiationListeners(this._connection);
+        this._connection.ondatachannel = this._onDataChannel.bind(this);
+      }
+
+      if (desc.type === 'answer') {
+        this._connection.setRemoteDescription(desc)
+        .catch(this._handleDescriptionError);
+      } else {
+        this._connection.setRemoteDescription(desc)
+        .then( () => this._connection.createAnswer())
+        .then( desc => {
+          this._connection.setLocalDescription(desc)
+
+          // offer description to remote client
+          this.dispatchEvent(new CustomEvent('webrtc-ice-offer', { detail: desc }));
+        })
+        .catch(this._handleDescriptionError);
+      }
+    }
+    _onDataChannel(event){
+      console.log('datachannel event');
+      this._dataChannel = event.channel;
+      this._dataChannel.binaryType = 'arraybuffer';
+
+      this._dataChannel.onmessage = this._onDataChannelMessage.bind(this);
+      this._dataChannel.onopen = this._onDataChannelOpen;
+      this._dataChannel.onclose = this._onDataChannelClose;
+    }
+    _onDataChannelMessage(event){
+      this.dispatchEvent(new CustomEvent('webrtc-datachannel-message', { detail: event.data }))
+    }
+    _onDataChannelOpen(event){
+      this.dispatchEvent(new CustomEvent('webrtc-datachannel-open'))
+    }
+    _onDataChannelClose(event){
+      console.log('close event');
+    }
+
+    // error handlers
+    _handleDescriptionError(error){
+      console.error('description error:',error);
+    }
+    _generalError(error){
+      console.error('general error', error);
+    }
+
+  }
+
+  customElements.define(webRTC.is, webRTC);
+
+</script>

@@ -1,4 +1,10 @@
-<link rel="import" href="../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../bower_components/polymer/polymer-element.html">
+<link rel="import" href="../../bower_components/iron-input/iron-input.html">
+<link rel="import" href="../../bower_components/iron-icons/iron-icons.html">
+<link rel="import" href="../../bower_components/paper-button/paper-button.html">
+<link rel="import" href="../../bower_components/paper-icon-button/paper-icon-button.html">
+<link rel="import" href="../web-socket.html">
+<link rel="import" href="../web-rtc.html">
 
 <dom-module id="tactile-transfer-app">
   <template>
@@ -6,25 +12,361 @@
       :host {
         display: block;
       }
+
+      [hidden] {
+        display: none;
+      }
+
+      .round {
+        height: 200px;
+        width: 200px;
+        border-radius: 100px;
+        position: relative; /* needed for ripple to stay within container */
+        pointer-events: none;
+      }
+
+      #download {
+        pointer-events: auto;
+      }
+
+      #download-icon {
+        display: block;
+        margin: auto;
+      }
+
+      paper-input-container {
+        max-width: 300px;
+      }
+
+      paper-ripple {
+        /*color: rgb(0, 148, 255);*/
+      }
+
     </style>
-    <h2>Hello [[prop1]]</h2>
+
+    
+
+    <dom-repeat items="[[users]]">
+      <template>
+        <paper-button raised noink id="[[item.id]]" on-tap="_connect">[[item.agent]]</paper-button>
+      </template>
+    </dom-repeat>
+
+    <a id="download" hidden>
+      Done! Save downloaded file
+      <paper-icon-button icon="file-download"></paper-icon-button></a>
+      <!--<paper-icon-button><iron-icon id="download-icon" icon="file-download"></paper-icon-button>-->
+    <!--</a>-->
+
+    <dom-if if="[[_receiveReady]]">
+      <template>
+        <p>
+          Ready to recieve data from [[selected.agent]]
+        </p>
+      </template>
+    </dom-if>
+    <dom-if if="[[_sendReady]]">
+      <template>
+        <p>
+          Ready to send data
+        </p>
+      </template>
+    </dom-if>
+    <dom-if if="[[_missingFeatures]]">
+      <template>
+
+      </template>
+    </dom-if>
+
+
+    <paper-ripple id="ripple" on-tap="_send" center noink></paper-ripple>
+
+    <label>Select a file</label>
+    <iron-input >
+      <input id='input' type="file">
+    </iron-input>
+
+
+    <web-socket id="websocket" url="wss://tactile-transfer.blind238.com:6503"></web-socket>
+    <web-rtc id="webrtc"></web-rtc>
+
+
   </template>
 
   <script>
-    class MyApplication extends Polymer.Element {
+    class TactileTransferApp extends Polymer.Element {
       static get is() { return 'tactile-transfer-app'; }
-      static get config() {
-        return {
-          properties: {
-            prop1: {
-              type: String,
-              value: 'tactile-transfer-app'
-            }
-          }
-        };
+
+      constructor(){
+        super();
+
+        this._displayState = '';
+        this._downloadReady = false;
+        this._receiveReady = false;
+        this._sendReady = false;
+        this._missingFeature = false;
+
+        this._receiveBuffer = [];
+        this._receivedSize = 0;
       }
+
+      connectedCallback(){
+        super.connectedCallback();
+
+        // this.shadowRoot.getElementById('input').addEventListener('change', this.fileHandler.bind(this));
+        this.$.input.addEventListener('change', this.fileHandler.bind(this));
+
+        // let websocket = this.shadowRoot.getElementById('websocket');
+        let websocket = this.$.websocket;
+
+        websocket.addEventListener('websocket-open', this._wsOpen.bind(this));
+        websocket.addEventListener('websocket-message', this._wsMessage.bind(this));
+        // this.$.websocket.addEventListener('websocket-open', this._wsOpen.bind(this));
+        // this.$.websocket.addEventListener('websocket-message', this._wsMessage.bind(this));
+
+        // let webrtc = this.shadowRoot.getElementById('webrtc');
+        let webrtc = this.$.webrtc;
+
+        webrtc.addEventListener('webrtc-datachannel-open', this._wrtcOpen.bind(this));
+        webrtc.addEventListener('webrtc-ice-offer', this._wrtcIceOffer.bind(this));
+        webrtc.addEventListener('webrtc-ice-candidate', this._wrtcIceCandidate.bind(this));
+        webrtc.addEventListener('webrtc-datachannel-message', this._wrtcMessage.bind(this));
+        // this.$.webrtc.addEventListener('webrtc-datachannel-open', this._wrtcOpen.bind(this));
+        // this.$.webrtc.addEventListener('webrtc-ice-offer', this._wrtcIceOffer.bind(this));
+        // this.$.webrtc.addEventListener('webrtc-ice-candidate', this._wrtcIceCandidate.bind(this));
+        // this.$.webrtc.addEventListener('webrtc-datachannel-message', this._wrtcMessage.bind(this));
+
+        websocket.connect();
+        // this.$.websocket.connect();
+      }
+
+      fileHandler(event){
+        var file = this.$.input.files[0];
+
+        if (file.size === 0){
+          // state that file is empty, choose another file
+          return;
+        }
+
+        this._changeDisplay('sendReady');
+      }
+
+      _changeDisplay(state){
+        const stateList = [
+          'downloadReady',
+          'receiveReady',
+          'sendReady',
+          'missingFeature'
+        ];
+
+        switch (state){
+          case 'downloadReady':
+            this._displayState = state;
+            this.$.download.removeAttribute('hidden');
+            this._downloadReady = true;
+            break;
+          case 'receiveReady':
+            this._displayState = state;
+            this._receiveReady = true;
+            break;
+          case 'sendReady':
+            this._displayState = state;
+            this._sendReady = true;
+            break;
+          case 'missingFeature':
+            this._displayState = state;
+            this._missingFeature = true;
+            break;
+          default:
+            this._displayState = 'none';
+            break;
+        }
+
+        // disable non-matching display states
+        stateList.filter( s => s !== this._displayState )
+        .forEach( s => this['_' + s] = false );
+      }
+
+      /**
+       * web-socket listeners
+       */
+      _wsOpen(e) {
+        console.log('wsOpen:',e);
+      }
+      _wsMessage(e) {
+        console.log('wsMessage:', e.detail);
+        let msg = e.detail;
+
+        switch (msg.type) {
+          case 'id':
+            this._id = msg.id;
+            break;
+          case 'ice-offer':
+            if (msg.origin) {
+              this._target = msg.origin;
+            }
+            // if we don't have a role yet, we're receiving
+            if (typeof this._role === 'undefined'){
+              this._role = 'receiver';
+            }
+
+            this.$.webrtc.setRemoteDescription(msg.sdp);
+            break;
+          case 'ice-candidate':
+            this.$.webrtc.addIceCandidate(msg.candidate);
+            break;
+          case 'userlist':
+            this.users = msg.users.map(function(user){
+              return {
+                id: user.id,
+                agent: user.details.os + ' ' +
+                  (user.details.device === 'Other' ?
+                    user.details.browser : user.details.device)
+              }
+            }).filter(u => u.id !== this._id);
+
+            console.log(JSON.stringify(this.users));
+
+            if (this.users.length === 1) {
+              this.selected = this.users[0];
+              this._changeDisplay('receiveReady');
+            } else {
+              this._changeDisplay('none');
+            }
+            break;
+          default:
+            console.warn('unrecognized ws message type:', msg.type);
+            break;
+        }
+      }
+
+
+      /**
+       * web-rtc listeners 
+       */
+
+      _wrtcOpen(e) {
+        console.log('wrtcOpen', e);
+        if (this._role === 'sender') {
+          this._sendMetaData();
+          this._sendData();
+        }
+      }
+
+      _wrtcIceOffer(e) {
+        this.$.websocket.send({
+          target: this._target,
+          origin: this._id,
+          type: 'ice-offer',
+          sdp: e.detail
+        })
+      }
+
+      _wrtcIceCandidate(e) {
+        this.$.websocket.send({
+          target: this._target,
+          origin: this._id,
+          type: 'ice-candidate',
+          candidate: e.detail
+        });
+      }
+
+      _wrtcMessage(e) {
+        console.log('msg:', e);
+        // event will be an empty object if fired during init
+        if (Object.keys(e).length === 0){
+          console.log('_wrtcMessage e was empty:', e)
+          return;
+        }
+
+        if (!this._metaData && typeof e.detail === 'string'){
+          this._metaData = JSON.parse(e.detail);
+          console.log(this._metaData);
+          return;
+        }
+
+        this._receiveBuffer.push(e.detail);
+        this._receivedSize += e.detail.byteLength;
+        this._onProgress(percentageOf(this._receivedSize, this._metaData.size));
+
+        if (this._receivedSize === this._metaData.size) {
+          var received = new window.Blob(this._receiveBuffer);
+          this._receiveBuffer = [];
+
+          this._changeDisplay('downloadReady');
+
+          var downloadAnchor = this.$.download;
+          downloadAnchor.href = URL.createObjectURL(received);
+          downloadAnchor.download = this._metaData.name;
+        }
+
+        function percentageOf(partial, total) {
+          return (partial * 100) / total;
+        }
+      }
+      
+      _sendMetaData(){
+        var file = this.$.input.files[0];
+        this.$.webrtc.send(
+          JSON.stringify({
+            name: file.name,
+            size: file.size,
+            type: file.type
+          })
+        );
+      }
+
+      // for throttling check https://github.com/webrtc/samples/blob/gh-pages/src/content/datachannel/datatransfer/js/main.js
+      _sendData(){
+        var file = this.$.input.files[0];
+
+        // Handle 0 size files.
+        if (file.size === 0) {
+          // closeDataChannels();
+          // return;
+        }
+
+        var self = this;
+
+        // sendProgress.max = file.size;
+
+        var chunkSize = 16384;
+        var sliceFile = function(offset) {
+          var reader = new window.FileReader();
+          reader.onload = (function() {
+            return function(e) {
+              self.$.webrtc.send(e.target.result);
+              if (file.size > offset + e.target.result.byteLength) {
+                setTimeout(sliceFile, 0, offset + chunkSize);
+              }
+              // sendProgress.value = offset + e.target.result.byteLength;
+            };
+          })(file);
+          var slice = file.slice(offset, offset + chunkSize);
+          reader.readAsArrayBuffer(slice);
+        };
+
+        sliceFile(0);
+      }
+
+      /**
+       * other stuff
+       */
+      _connect(event){
+        var remoteID = event.currentTarget.id;
+        this._target = +remoteID;
+        this._role = 'sender';
+        this.$.webrtc.connect();
+      }
+
+      _onProgress(percent){
+        // express progress
+        
+      }
+
     }
 
-    window.customElements.define(MyApplication.is, MyApplication);
+
+    window.customElements.define(TactileTransferApp.is, TactileTransferApp);
   </script>
 </dom-module>
