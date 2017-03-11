@@ -5,6 +5,7 @@
 <link rel="import" href="../../bower_components/paper-icon-button/paper-icon-button.html">
 <link rel="import" href="../web-socket.html">
 <link rel="import" href="../web-rtc.html">
+<link rel="import" href="../vibration-api.html">
 
 <dom-module id="tactile-transfer-app">
   <template>
@@ -86,9 +87,15 @@
       <input id='input' type="file">
     </iron-input>
 
+    <paper-button id=zero raised>0%</paper-button>
+    <paper-button id=less raised>25%</paper-button>
+    <paper-button id=half raised>50%</paper-button>
+    <paper-button id=more raised>75%</paper-button>
+    <paper-button id=hundred raised>100%</paper-button>
 
     <web-socket id="websocket" url="wss://tactile-transfer.blind238.com:6503"></web-socket>
     <web-rtc id="webrtc"></web-rtc>
+    <vibration-api id="vibration"></vibration-api>
 
 
   </template>
@@ -112,6 +119,21 @@
 
       connectedCallback(){
         super.connectedCallback();
+
+        // let testConn = new RTCPeerConnection();
+        // if ('createDataChannel' in testConn) {
+        //   console.log('dataChannel supported')
+        // } else {
+        //   console.log('dataChannel not supported');
+        // }
+        // testConn.close();
+
+        this.$.zero.addEventListener('tap', ()=> this._onProgress(0) );
+        this.$.less.addEventListener('tap', ()=> this._onProgress(25) );
+        this.$.half.addEventListener('tap', ()=> this._onProgress(50) );
+        this.$.more.addEventListener('tap', ()=> this._onProgress(75) );
+        this.$.hundred.addEventListener('tap', ()=> this._onProgress(100) );
+
 
         // this.shadowRoot.getElementById('input').addEventListener('change', this.fileHandler.bind(this));
         this.$.input.addEventListener('change', this.fileHandler.bind(this));
@@ -361,7 +383,45 @@
 
       _onProgress(percent){
         // express progress
+        const vibrationMin = 80;
+        const vibrationMax = 120;
+        const delayMin = 120;
+        const delayMax = 270;
+
+        const vibrationDiff = vibrationMax - vibrationMin;
+        const delayDiff = delayMax - delayMin;
+
+        //   0% = vibrationMax and delayMin
+        // 100% = vibrationMin and delayMax
+        let vibration = vibrationMax - (vibrationDiff / 100) * percent;
+        let delay = delayMin + (delayDiff / 100) * percent;
         
+        console.log(vibration, delay);
+
+        if (!this._vibrationPromise) {
+          this._vibrationPromise = this.$.vibration.vibrate(this._genVibrationPattern(vibration, delay));
+          this._vibrationPromise
+          .then(()=> {alert('vibration promise resolved'); this._vibrationPromise = null})
+          .catch(e => {alert('vibration promise rejected: ' + e); this._vibrationPromise = null});
+        } else {
+          this.$.vibration.inject(this._genVibrationPattern(vibration, delay));
+        }
+
+      }
+
+      _genVibrationPattern(vibration, delay) {
+        var lessThanTwoSeconds = true;
+        var pattern = [];
+
+        for ( ; lessThanTwoSeconds ; ) {
+          pattern.push(vibration, delay);
+          
+          if (pattern.reduce((sum, ms) => sum + ms) > 2000) {
+            lessThanTwoSeconds = false;
+          }
+        }
+
+        return pattern;
       }
 
     }

@@ -1,0 +1,439 @@
+<link rel="import" href="../bower_components/polymer/polymer-element.html">
+
+<script>
+  'use strict';
+
+  /**
+   * the promise returned will only resolve when the pattern should complete.
+   * the promise will only reject if the pattern is replaced via vibrate().
+   * if a new pattern is inject()-ed, the promise returned might be the same.
+   *   vibrate(pattern)
+   *   .then(doStuffWhenFinished)
+   * 
+   *   inject(moreStuff) // will return the same promise if vibrate is still going on
+   * 
+   * the above might change if it's not useful in practice.
+   */
+  class VibrationApi extends Polymer.Element {
+    static get is() { return 'vibration-api' }
+
+    constructor(){
+      super();
+      
+      this._p = {
+        promise: null,
+        resolve: null,
+        reject:  null
+      };
+    }
+
+    // should work just like navigator.vibrate, with the addition of returning
+    // a promise. it resolves when vibration should have completed (or < 16ms before), rejects when
+    // a new pattern is being applied.
+    vibrate(pattern) {
+      if (!'vibrate' in navigator) {
+        return;
+      }
+
+      if (this._p.promise) {
+        this._p.reject(new Error('vibration pattern is being replaced'));
+        this._clearRequestTimeout(this._timeout);
+        this._reset();
+      }
+
+      if (Array.isArray(pattern)) {
+        this._currentPattern = pattern.slice();
+        this._currentLength = pattern.reduce((total, ms) => total + ms, 0);
+      } else {
+        this._currentPattern = pattern;
+        this._currentLength = pattern;
+      }
+
+      navigator.vibrate(pattern);
+      this._start = Date.now();
+      this._vibrating = true;
+
+      let p = new Promise((resolve, reject) => {
+        this._p.resolve = resolve;
+        this._p.reject = reject;
+      })
+
+      this._p.promise = p;
+
+      this._timeout = this._requestTimeout(() => {
+        this._p.resolve();
+        this._reset();
+      }, this._currentLength);
+
+
+      return p;
+    }
+
+    inject(pattern) {
+      if (!this._vibrating) {
+        return this.vibrate(pattern);
+      }
+
+      //determine how far along we are in the pattern, and if vibrating
+      var current = Date.now();
+      var elapsed = current - this._start;
+      var vibrating, remaining;
+      if (Array.isArray(this._currentPattern)) {
+        let i = 0;
+
+        for (var total = 0; i < this._currentPattern.length; i++) {
+          if (i % 2 === 0) { //if even
+            vibrating = true;
+          } else {
+            vibrating = false;
+          }
+
+          if (total + this._currentPattern[i] >= elapsed) {
+            remaining = (total + this._currentPattern[i]) - elapsed;
+            break;
+          }
+
+          total += this._currentPattern[i];
+        }
+
+        if (this._injectTimeout) {
+          this._clearRequestTimeout(this._injectTimeout);
+          this._injectTimeout = null;
+        }
+
+        // prepare new pattern
+        // the pattern will be replaced after the next pause (for now),
+        // because a new pattern should begin with vibration.
+        // NOTE: So far when a new pattern is applied, vibration stops ,
+        // then vibration starts, then it takes the pattern into account.
+        // Possible solution is to wait until after next delay to 
+        // apply new pattern.
+        if (vibrating) {
+          
+            if (this._currentPattern[i+1]) {
+              this._injectTimeout = this._requestTimeout(() => {
+                navigator.vibrate(pattern);
+                this._start = Date.now();
+                this._currentLength = pattern.reduce((total, ms) => total + ms, 0);
+                this._currentPattern = pattern;
+                this._resetMonitor();
+                this._injectTimeout = null;
+              }, remaining + this._currentPattern[i+1]);
+
+            } else {
+              // if there's no delay available, add delay equal to first vibration
+              pattern.unshift(0, pattern[0]);
+
+              this._injectTimeout = this._requestTimeout(() => {
+                navigator.vibrate(pattern);
+                this._start = Date.now();
+                this._currentLength = pattern.reduce((total, ms) => total + ms, 0);
+                this._currentPattern = pattern;
+                this._resetMonitor();
+                this._injectTimeout = null;
+              }, remaining);
+            }
+            
+        } else { // currently inside delay part of pattern
+          
+          this._injectTimeout = this._requestTimeout(() => {
+            navigator.vibrate(pattern);
+            this._start = Date.now();
+            this._currentLength = pattern.reduce((total, ms) => total + ms, 0);
+            this._currentPattern = pattern;
+            this._resetMonitor();
+            this._injectTimeout = null;
+          }, remaining);
+
+        }       
+
+      } else {
+        // not an array, what do?
+      }
+
+      return this._p.promise;
+    }
+
+    
+    _monitor() {
+      this._timeout = this._requestTimeout(() => {
+        this._p.resolve();
+        this._reset();
+      }, this._currentLength);
+    }
+
+    _resetMonitor() {
+      this._clearRequestTimeout(this._timeout);
+      this._monitor();
+    }
+
+    _reset() {
+      this._p.promise = null;
+      this._p.resolve = null;
+      this._p.reject = null;
+      this._timeout = null;
+      this._start = null;
+      this._vibrating = false;
+    }
+
+
+    // adapted from https://gist.github.com/joelambert/1002116
+    _requestTimeout(fn, delay) {
+      var requestAnimFrame = (function () {
+        return window.requestAnimationFrame || function (callback, element) {
+          window.setTimeout(callback, 1000 / 60);
+        };
+      })(),
+      start = Date.now(),
+      handle = {};
+      function loop() {
+        var current = Date.now(),
+        delta = current - start;
+        if (delta >= delay || delay - delta < 16) {
+          fn.call();
+        } else {
+          handle.value = requestAnimFrame(loop);
+        }
+      }
+      handle.value = requestAnimFrame(loop);
+      return handle;
+    }
+
+    _clearRequestTimeout(handle) {
+      if (window.cancelAnimationFrame) {
+        window.cancelAnimationFrame(handle.value);
+      } else {
+        window.clearTimeout(handle);
+      }
+    }
+
+  }
+
+
+  customElements.define(VibrationApi.is, VibrationApi);
+</script>
+
+<script>
+ var oldPoly = {
+    vibrate: function(numberOrArray) {
+      var isArray = Array.isArray(numberOrArray);
+
+      if (this._vibrating) {
+        if (isArray) {
+          this._injectPattern(numberOrArray);
+        } else {
+          this._inject(numberOrArray);
+        }
+      } else {
+        this._vibrating = true;
+
+        if (isArray) {
+          this._currentPattern = numberOrArray.slice(); //make shallow copy
+          this._currentTotal = this.currentPattern.reduce(function(total, ms){
+            return total + ms;
+          },0);
+        } else {
+          this._currentPattern = numberOrArray;
+          this._currentTotal = this._currentPattern;
+        }
+
+        this._currentIsArray = isArray;
+
+        this._currentTimestamp = Date.now();
+
+        this._vibrate(this._currentPattern);
+
+        this._asyncRef = this.async(() => {
+          var now = Date.now();
+          console.log('now: ', now);
+          console.log('expected end: ', this._currentTimestamp + this._currentTotal);
+          console.log('diff now and expected', now - (this._currentTimestamp + this._currentTotal));
+        }, this._currentTotal);
+      }
+    },
+
+    stop: function(){
+      this._resetProperties();
+      this._vibrate(0);
+    },
+    // default behavior is to inject or start, have method to replace entirely
+    replace: function(numberOrArray) {
+      this.stop();
+      this.vibrate(numberOrArray);
+    },
+
+    _vibrate: function(numberOrArray) {
+      if ('vibrate' in navigator) {
+        navigator.vibrate(numberOrArray);
+      }
+      // else have another indicator, callback or attribute maybe?
+      // it should signal on and off state
+      //
+      // would probably need to implement vibrate spec, shouldn't be too hard
+    },
+    _inject: function(number) {
+      // if vibration will last beyond current, determine status and replace pattern
+    },
+    _injectPattern: function(pattern) {
+
+    },
+    _resumeCurrent: function() {
+      // figure out what should be happening right now, and set rest of pattern
+
+      // unshift with 0 if it should start without vibration
+    },
+    _resetProperties: function() {
+      this._vibrating = false;
+      this._currentPattern = null;
+      this._currentTimestamp = null;
+      this._currentTotal = 0;
+    }
+  };
+
+  function isOdd(number) {
+    return number % 2;
+  }
+
+  function resumeVibration() {
+    // calculate total previousPattern length
+    // Date.now - previousPattern.timestamp
+    // reduce previousPattern until time catches up
+    // push remaining cells into array
+    // acivate vibration with this pattern
+  }
+
+
+///////////////////////////////////////////
+
+'use strict';
+var _vibrating,
+    _currentPattern,
+    _currentTotal,
+    _currentIsArray,
+    _currentTotal,
+    _currentTimestamp,
+    _asyncRef;
+
+function vibrate(numberOrArray) {
+  var isArray = Array.isArray(numberOrArray);
+
+  if (_vibrating) {
+    if (isArray) {
+      _injectPattern(numberOrArray);
+    } else {
+      _inject(numberOrArray);
+    }
+  } else {
+    _vibrating = true;
+
+    if (isArray) {
+      _currentPattern = numberOrArray.slice(); //make shallow copy
+      _currentTotal = currentPattern.reduce(function(total, ms){
+        return total + ms;
+      },0);
+    } else {
+      _currentPattern = numberOrArray;
+      _currentTotal = _currentPattern;
+    }
+
+    _currentIsArray = isArray;
+
+    _currentTimestamp = Date.now();
+
+    _vibrate(_currentPattern);
+
+    _asyncRef = setTimeout(() => {
+      var now = Date.now();
+      console.log('now: ', now);
+      console.log('expected end: ', _currentTimestamp + _currentTotal);
+      console.log('diff now and expected', now - (_currentTimestamp + _currentTotal));
+    }, _currentTotal);
+  }
+}
+
+function stop(){
+  _resetProperties();
+  _vibrate(0);
+}
+
+// default behavior is to inject or start, have method to replace entirely
+function replace(numberOrArray) {
+  stop();
+  vibrate(numberOrArray);
+}
+
+function _vibrate(numberOrArray) {
+  if ('vibrate' in navigator) {
+    navigator.vibrate(numberOrArray);
+  }
+  // else have another indicator, callback or attribute maybe?
+  // it should signal on and off state
+  //
+  // would probably need to implement vibrate spec, shouldn't be too hard
+}
+
+function _inject(number) {
+  // if vibration will last beyond current, determine status and replace pattern
+}
+
+function _injectPattern (pattern) {
+
+}
+
+function _resumeCurrent() {
+  // figure out what should be happening right now, and set rest of pattern
+
+  // unshift with 0 if it should start without vibration
+}
+
+function resetProperties() {
+  _vibrating = false;
+  _currentPattern = null;
+  _currentTimestamp = null;
+  _currentTotal = 0;
+}
+
+/*
+  LEGACY API
+ */
+// start vibration
+// should indicate status, so either you are receiving or sending
+// should also indicate another property. either size, weight or type?
+function start(length) {
+  length = length || 130;
+  return [length,100,length,300];
+}
+
+// end vibration
+// should indicate status, wether you have copy or don't.
+function end(length) {
+  length = length || 150;
+  return [length, 0];
+}
+
+// progress vibration
+// (derive off of transfer progress)
+function progress(length) {
+  var delays = [];
+  var delayBase = 100;
+  var delayMax = 270;
+  var delayIterations = 10;
+  var delayFactor = (delayMax - delayBase) / delayIterations;
+  var duration = length || 50;
+
+  // around 250 for the end delay seems right
+  for (var i = 1; i <= delayIterations; i++) {
+    delays.push(delayBase + delayFactor * i);
+  }
+
+  return delays.reduce(function(pattern, delay){
+    pattern.push(duration);
+    pattern.push(delay);
+    return pattern;
+  },[]);
+}
+
+
+</script>
+
+
