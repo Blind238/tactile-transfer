@@ -87,12 +87,6 @@
       <input id='input' type="file">
     </iron-input>
 
-    <paper-button id=zero raised>0%</paper-button>
-    <paper-button id=less raised>25%</paper-button>
-    <paper-button id=half raised>50%</paper-button>
-    <paper-button id=more raised>75%</paper-button>
-    <paper-button id=hundred raised>100%</paper-button>
-
     <web-socket id="websocket" url="wss://tactile-transfer.blind238.com:6503"></web-socket>
     <web-rtc id="webrtc"></web-rtc>
     <vibration-api id="vibration"></vibration-api>
@@ -127,12 +121,6 @@
         //   console.log('dataChannel not supported');
         // }
         // testConn.close();
-
-        this.$.zero.addEventListener('tap', ()=> this._onProgress(0) );
-        this.$.less.addEventListener('tap', ()=> this._onProgress(25) );
-        this.$.half.addEventListener('tap', ()=> this._onProgress(50) );
-        this.$.more.addEventListener('tap', ()=> this._onProgress(75) );
-        this.$.hundred.addEventListener('tap', ()=> this._onProgress(100) );
 
 
         // this.shadowRoot.getElementById('input').addEventListener('change', this.fileHandler.bind(this));
@@ -329,12 +317,13 @@
       
       _sendMetaData(){
         var file = this.$.input.files[0];
+        this._metaData = {
+          name: file.name,
+          size: file.size,
+          type: file.type
+        };
         this.$.webrtc.send(
-          JSON.stringify({
-            name: file.name,
-            size: file.size,
-            type: file.type
-          })
+          JSON.stringify(this._metaData)
         );
       }
 
@@ -350,7 +339,7 @@
 
         var self = this;
 
-        // sendProgress.max = file.size;
+        let fileSize = file.size;
 
         var chunkSize = 16384;
         var sliceFile = function(offset) {
@@ -361,6 +350,8 @@
               if (file.size > offset + e.target.result.byteLength) {
                 setTimeout(sliceFile, 0, offset + chunkSize);
               }
+              console.log( (offset + e.target.result.byteLength)/fileSize * 100);
+              self._onProgress(  (offset + e.target.result.byteLength)/fileSize * 100);
               // sendProgress.value = offset + e.target.result.byteLength;
             };
           })(file);
