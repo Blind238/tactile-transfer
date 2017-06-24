@@ -1,8 +1,10 @@
 <link rel="import" href="../../bower_components/polymer/polymer-element.html">
+<!--<link rel="import" href="../../bower_components/polymer/polymer.html">-->
 <link rel="import" href="../../bower_components/iron-input/iron-input.html">
 <link rel="import" href="../../bower_components/iron-icons/iron-icons.html">
 <link rel="import" href="../../bower_components/paper-button/paper-button.html">
 <link rel="import" href="../../bower_components/paper-icon-button/paper-icon-button.html">
+<!--<link rel="import" href="../../bower_components/platinum-bluetooth/platinum-bluetooth-elements.html">-->
 <link rel="import" href="../web-socket.html">
 <link rel="import" href="../web-rtc.html">
 <link rel="import" href="../vibration-api.html">
@@ -16,14 +18,6 @@
 
       [hidden] {
         display: none;
-      }
-
-      .round {
-        height: 200px;
-        width: 200px;
-        border-radius: 100px;
-        position: relative; /* needed for ripple to stay within container */
-        pointer-events: none;
       }
 
       #download {
@@ -91,7 +85,21 @@
     <web-rtc id="webrtc"></web-rtc>
     <vibration-api id="vibration"></vibration-api>
 
+    <platinum-bluetooth-device id=blueDevice services-filter='["e753a59e-00f0-4173-9608-b45fd879c848"]'>
+      <platinum-bluetooth-service id=blueService service="e753a59e-00f0-4173-9608-b45fd879c848">
+        <platinum-bluetooth-characteristic id=blueChar characteristic="12f277e3-7915-4da9-bebc-6071ef2ce2e7">
 
+        </platinum-bluetooth-characteristic>
+      </platinum-bluetooth-service>
+    </platinum-bluetooth-device>
+
+    <paper-button raised id=blueBtn>Get Device</paper-button>
+    <p>Pattern status: [[_p]]</p>
+    <div>
+      <paper-button raised id=pattern1>1</paper-button>
+      <paper-button raised id=pattern2>2</paper-button>
+      <paper-button raised id=pattern3>3</paper-button>
+    </div>
   </template>
 
   <script>
@@ -106,6 +114,8 @@
         this._receiveReady = false;
         this._sendReady = false;
         this._missingFeature = false;
+        this._btCharacteristic = null;
+        this._btPollInterval = null;
 
         this._receiveBuffer = [];
         this._receivedSize = 0;
@@ -122,6 +132,43 @@
         // }
         // testConn.close();
 
+        this.$.pattern1.addEventListener('tap', ()=> this._requestPattern(1) );
+        this.$.pattern2.addEventListener('tap', ()=> this._requestPattern(2) );
+        this.$.pattern3.addEventListener('tap', ()=> this._requestPattern(3) );
+        
+       
+        this.$.blueBtn.addEventListener('tap', () => {
+
+          navigator.bluetooth.requestDevice({
+            filters:[{
+              // name: 'Tactile Transfer',
+              services: ['e753a59e-00f0-4173-9608-b45fd879c848']
+            }]
+            // optionalServices: ['e753a59e-00f0-4173-9608-b45fd879c848']
+          })
+          .then(device => device.gatt.connect())
+          .then(server => server.getPrimaryService('e753a59e-00f0-4173-9608-b45fd879c848'))
+          .then(service => service.getCharacteristic('12f277e3-7915-4da9-bebc-6071ef2ce2e7'))
+          .then(characteristic => {
+            this._btCharacteristic = characteristic;
+            // this._btCharacteristic.addEventListener('characteristicvaluechanged', this._btNotificationHandler.bind(this));
+            return characteristic.readValue();
+          })
+          .then(value => {
+            console.log("current value: " + value.getUint8(0));
+            this._p = value.getUint8(0);
+            // set up polling
+            this._btPollInterval = window.setInterval(this._btPoller.bind(this), 500);
+
+          })
+          .catch(error => console.log(error));
+          
+          // this.$.blueDevice.request()
+          // .then(device => this.$.blueChar.read())
+          // .then(value => console.log(value.getUint8(0)))
+          // .catch(error => console.log(error));
+
+        })
 
         // this.shadowRoot.getElementById('input').addEventListener('change', this.fileHandler.bind(this));
         this.$.input.addEventListener('change', this.fileHandler.bind(this));
@@ -148,6 +195,28 @@
 
         websocket.connect();
         // this.$.websocket.connect();
+      }
+
+      _btPoller() {
+        this._btCharacteristic.readValue()
+        .then(value =>  {
+          this._p = value.getUint8(0);
+          console.log('got value from : ' + this._p);
+        })
+      }
+
+      _btNotificationHandler(event) {
+        let value = event.target.value;
+
+        let p = value.getUint8(0);
+
+        this._p = p;
+
+        console.log('got value from handler: ' + p);
+      }
+
+      _requestPattern(p) {
+        this._btCharacteristic.writeValue(Uint8Array.of(p));
       }
 
       fileHandler(event){
