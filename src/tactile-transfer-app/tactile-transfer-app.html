@@ -3,7 +3,10 @@
 <link rel="import" href="../../bower_components/iron-input/iron-input.html">
 <link rel="import" href="../../bower_components/iron-icons/iron-icons.html">
 <link rel="import" href="../../bower_components/paper-button/paper-button.html">
+<link rel="import" href="../../bower_components/paper-dialog/paper-dialog.html">
 <link rel="import" href="../../bower_components/paper-icon-button/paper-icon-button.html">
+<link rel="import" href="../../bower_components/paper-card/paper-card.html">
+<link rel="import" href="../../bower_components/paper-input/paper-textarea.html">
 <!--<link rel="import" href="../../bower_components/platinum-bluetooth/platinum-bluetooth-elements.html">-->
 <link rel="import" href="../web-socket.html">
 <link rel="import" href="../web-rtc.html">
@@ -29,6 +32,15 @@
         margin: auto;
       }
 
+      #blueBtnVanilla,
+      paper-card {
+        margin: .2em;
+      }
+
+      paper-card {
+        display: inline-block;
+      }
+
       paper-input-container {
         max-width: 300px;
       }
@@ -41,7 +53,7 @@
 
     
 
-    <dom-repeat items="[[users]]">
+    <!--<dom-repeat items="[[users]]">
       <template>
         <paper-button raised noink id="[[item.id]]" on-tap="_connect">[[item.agent]]</paper-button>
       </template>
@@ -49,11 +61,11 @@
 
     <a id="download" hidden>
       Done! Save downloaded file
-      <paper-icon-button icon="file-download"></paper-icon-button></a>
+      <paper-icon-button icon="file-download"></paper-icon-button></a>-->
       <!--<paper-icon-button><iron-icon id="download-icon" icon="file-download"></paper-icon-button>-->
     <!--</a>-->
 
-    <dom-if if="[[_receiveReady]]">
+    <!--<dom-if if="[[_receiveReady]]">
       <template>
         <p>
           Ready to recieve data from [[selected.agent]]
@@ -83,24 +95,49 @@
 
     <web-socket id="websocket" url="wss://tactile-transfer.blind238.com:6503"></web-socket>
     <web-rtc id="webrtc"></web-rtc>
-    <vibration-api id="vibration"></vibration-api>
+    <vibration-api id="vibration"></vibration-api>-->
 
-    <platinum-bluetooth-device id=blueDevice services-filter='["e753a59e-00f0-4173-9608-b45fd879c848"]'>
+    <!--<platinum-bluetooth-device id=blueDevice services-filter='["e753a59e-00f0-4173-9608-b45fd879c848"]'>
       <platinum-bluetooth-service id=blueService service="e753a59e-00f0-4173-9608-b45fd879c848">
         <platinum-bluetooth-characteristic id=blueChar characteristic="12f277e3-7915-4da9-bebc-6071ef2ce2e7">
 
         </platinum-bluetooth-characteristic>
       </platinum-bluetooth-service>
-    </platinum-bluetooth-device>
+    </platinum-bluetooth-device>-->
+    
+    <paper-button raised id=blueBtnVanilla>Connect!</paper-button>
+    <!--<paper-button raised id=blueBtnPlatinum>Get Device Platinum</paper-button>-->
 
-    <paper-button raised id=blueBtnVanilla>Get Device</paper-button>
-    <paper-button raised id=blueBtnPlatinum>Get Device Platinum</paper-button>
-    <p>Pattern status: [[_p]]</p>
-    <div>
-      <paper-button raised id=pattern1>1</paper-button>
-      <paper-button raised id=pattern2>2</paper-button>
-      <paper-button raised id=pattern3>3</paper-button>
-    </div>
+    <paper-card heading="New Message" alt="New Message">
+      <div class="card-content">
+        <paper-textarea>
+
+        </paper-textarea>
+      </div>
+      <div class="card-actions">
+        <paper-button id=attachBtn>Attach <iron-icon icon="attachment"></iron-icon></paper-button>
+        <paper-button id=sendBtn>Send</paper-button>
+      </div>
+    </paper-card>
+
+    <paper-card heading="Upload file" alt="Upload file">
+      <div class="card-content">
+      demoFile.zip
+      </div>
+      <div class="card-actions">
+        <paper-button id=uploadBtn>Upload</paper-button>
+      </div>
+    </paper-card>
+
+    <paper-card heading="Download file" alt="Download file">
+      <div class="card-content">
+      demoFile.zip
+      </div>
+      <div class="card-actions">
+        <paper-button id=downloadBtn>Download</paper-button>
+      </div>
+    </paper-card>
+
   </template>
 
   <script>
@@ -133,10 +170,19 @@
         // }
         // testConn.close();
 
-        this.$.pattern1.addEventListener('tap', ()=> this._requestPattern(1) );
-        this.$.pattern2.addEventListener('tap', ()=> this._requestPattern(2) );
-        this.$.pattern3.addEventListener('tap', ()=> this._requestPattern(3) );
-        
+        // this.$.pattern1.addEventListener('tap', ()=> this._requestPattern(1) );
+        // this.$.pattern2.addEventListener('tap', ()=> this._requestPattern(2) );
+        // this.$.pattern3.addEventListener('tap', ()=> this._requestPattern(3) );
+        // patterns:
+        // 1 warning
+        // 2 notice
+        // 3 upload
+        // 4 download
+
+        this.$.attachBtn.addEventListener('tap', () => this._requestPattern(1));
+        this.$.sendBtn.addEventListener('tap', () => this._requestPattern(2));
+        this.$.uploadBtn.addEventListener('tap', () => this._requestPattern(3,3));
+        this.$.downloadBtn.addEventListener('tap', () => this._requestPattern(4,3));
        
         this.$.blueBtnVanilla.addEventListener('tap', () => {
 
@@ -147,7 +193,12 @@
             }]
             // optionalServices: ['e753a59e-00f0-4173-9608-b45fd879c848']
           })
-          .then(device => device.gatt.connect())
+          .then(device => {
+            // Set up event listener for when device gets disconnected.
+            device.addEventListener('gattserverdisconnected', this._btDisconnected);
+
+            return device.gatt.connect()
+          })
           .then(server => server.getPrimaryService('e753a59e-00f0-4173-9608-b45fd879c848'))
           .then(service => service.getCharacteristic('12f277e3-7915-4da9-bebc-6071ef2ce2e7'))
           .then(characteristic => characteristic.startNotifications())
@@ -167,38 +218,38 @@
           
         })
 
-        this.$.blueBtnPlatinum.addEventListener('tap', () => {
-          this.$.blueDevice.request()
-          .then(device => this.$.blueChar.read())
-          .then(value => console.log(value.getUint8(0)))
-          .catch(error => console.log(error));
-        })
+        // this.$.blueBtnPlatinum.addEventListener('tap', () => {
+        //   this.$.blueDevice.request()
+        //   .then(device => this.$.blueChar.read())
+        //   .then(value => console.log(value.getUint8(0)))
+        //   .catch(error => console.log(error));
+        // })
 
-        // this.shadowRoot.getElementById('input').addEventListener('change', this.fileHandler.bind(this));
-        this.$.input.addEventListener('change', this.fileHandler.bind(this));
+        // // this.shadowRoot.getElementById('input').addEventListener('change', this.fileHandler.bind(this));
+        // this.$.input.addEventListener('change', this.fileHandler.bind(this));
 
-        // let websocket = this.shadowRoot.getElementById('websocket');
-        let websocket = this.$.websocket;
+        // // let websocket = this.shadowRoot.getElementById('websocket');
+        // let websocket = this.$.websocket;
 
-        websocket.addEventListener('websocket-open', this._wsOpen.bind(this));
-        websocket.addEventListener('websocket-message', this._wsMessage.bind(this));
-        // this.$.websocket.addEventListener('websocket-open', this._wsOpen.bind(this));
-        // this.$.websocket.addEventListener('websocket-message', this._wsMessage.bind(this));
+        // websocket.addEventListener('websocket-open', this._wsOpen.bind(this));
+        // websocket.addEventListener('websocket-message', this._wsMessage.bind(this));
+        // // this.$.websocket.addEventListener('websocket-open', this._wsOpen.bind(this));
+        // // this.$.websocket.addEventListener('websocket-message', this._wsMessage.bind(this));
 
-        // let webrtc = this.shadowRoot.getElementById('webrtc');
-        let webrtc = this.$.webrtc;
+        // // let webrtc = this.shadowRoot.getElementById('webrtc');
+        // let webrtc = this.$.webrtc;
 
-        webrtc.addEventListener('webrtc-datachannel-open', this._wrtcOpen.bind(this));
-        webrtc.addEventListener('webrtc-ice-offer', this._wrtcIceOffer.bind(this));
-        webrtc.addEventListener('webrtc-ice-candidate', this._wrtcIceCandidate.bind(this));
-        webrtc.addEventListener('webrtc-datachannel-message', this._wrtcMessage.bind(this));
-        // this.$.webrtc.addEventListener('webrtc-datachannel-open', this._wrtcOpen.bind(this));
-        // this.$.webrtc.addEventListener('webrtc-ice-offer', this._wrtcIceOffer.bind(this));
-        // this.$.webrtc.addEventListener('webrtc-ice-candidate', this._wrtcIceCandidate.bind(this));
-        // this.$.webrtc.addEventListener('webrtc-datachannel-message', this._wrtcMessage.bind(this));
+        // webrtc.addEventListener('webrtc-datachannel-open', this._wrtcOpen.bind(this));
+        // webrtc.addEventListener('webrtc-ice-offer', this._wrtcIceOffer.bind(this));
+        // webrtc.addEventListener('webrtc-ice-candidate', this._wrtcIceCandidate.bind(this));
+        // webrtc.addEventListener('webrtc-datachannel-message', this._wrtcMessage.bind(this));
+        // // this.$.webrtc.addEventListener('webrtc-datachannel-open', this._wrtcOpen.bind(this));
+        // // this.$.webrtc.addEventListener('webrtc-ice-offer', this._wrtcIceOffer.bind(this));
+        // // this.$.webrtc.addEventListener('webrtc-ice-candidate', this._wrtcIceCandidate.bind(this));
+        // // this.$.webrtc.addEventListener('webrtc-datachannel-message', this._wrtcMessage.bind(this));
 
-        websocket.connect();
-        // this.$.websocket.connect();
+        // websocket.connect();
+        // // this.$.websocket.connect();
       }
 
       _btPoller() {
@@ -219,10 +270,30 @@
         console.log('got value from handler: ' + p);
       }
 
-      _requestPattern(p) {
-        this._btCharacteristic.writeValue(Uint8Array.of(p))
-        .then(_ => this._p = p)
-        .catch(err => console.log('write error: ', err));
+      _btDisconnected() {
+
+      }
+
+      _requestPattern(p, iterations) {
+        if (typeof iterations === 'number') {
+          let count = 0;
+          let interval = window.setInterval(() => {
+            this._btCharacteristic.writeValue(Uint8Array.of(p))
+            count += 1;
+            if (count === iterations) {
+              window.clearInterval(interval);
+            }
+          }, 900); 
+        } else {
+
+          this._btCharacteristic.writeValue(Uint8Array.of(p))
+          .then(_ => {
+            this._p = p;
+            console.log('write confirmation: ', p);
+          })
+          .catch(err => console.log('write error: ', err));
+
+        }
       }
 
       fileHandler(event){
