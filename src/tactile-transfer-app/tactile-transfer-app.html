@@ -7,6 +7,7 @@
 <link rel="import" href="../../bower_components/paper-icon-button/paper-icon-button.html">
 <link rel="import" href="../../bower_components/paper-card/paper-card.html">
 <link rel="import" href="../../bower_components/paper-input/paper-textarea.html">
+<link rel="import" href="../../bower_components/paper-toast/paper-toast.html">
 <!--<link rel="import" href="../../bower_components/platinum-bluetooth/platinum-bluetooth-elements.html">-->
 <link rel="import" href="../web-socket.html">
 <link rel="import" href="../web-rtc.html">
@@ -138,6 +139,27 @@
       </div>
     </paper-card>
 
+    <paper-dialog id="attachDialog">
+      <h2>Attach file</h2>
+      <p>For demo purposes, file already selected</p>
+      <div class="buttons">
+        <paper-button dialog-dismiss>Cancel</paper-button>
+        <paper-button dialog-confirm autofocus>Attach</paper-button>
+      </div>
+    </paper-dialog>
+
+    <paper-dialog id="sendDialog">
+      <h2>Are you sure?</h2>
+      <p>Don't send any personal/sensitive information.</p>
+      <div class="buttons">
+        <paper-button dialog-dismiss>Cancel</paper-button>
+        <paper-button dialog-confirm autofocus>Send</paper-button>
+      </div>
+    </paper-dialog>
+
+    <paper-toast id=downloadToast text="Download complete!"></paper-toast>
+    <paper-toast id=uploadToast text="Upload complete!"></paper-toast>
+
   </template>
 
   <script>
@@ -179,10 +201,22 @@
         // 3 upload
         // 4 download
 
-        this.$.attachBtn.addEventListener('tap', () => this._requestPattern(1));
-        this.$.sendBtn.addEventListener('tap', () => this._requestPattern(2));
-        this.$.uploadBtn.addEventListener('tap', () => this._requestPattern(3,3));
-        this.$.downloadBtn.addEventListener('tap', () => this._requestPattern(4,3));
+        this.$.attachBtn.addEventListener('tap', () => {
+          this.$.attachDialog.open();
+          this._requestPattern(1);
+        });
+        this.$.sendBtn.addEventListener('tap', () => {
+          this.$.sendDialog.open();
+          this._requestPattern(2)
+        });
+        this.$.uploadBtn.addEventListener('tap', () => {
+          this._requestPattern(3,3)
+          .then(() => this.$.uploadToast.open());
+        });
+        this.$.downloadBtn.addEventListener('tap', () => {
+          this._requestPattern(4,3)
+          .then(() => this.$.downloadToast.open());
+        });
        
         this.$.blueBtnVanilla.addEventListener('tap', () => {
 
@@ -277,13 +311,21 @@
       _requestPattern(p, iterations) {
         if (typeof iterations === 'number') {
           let count = 0;
-          let interval = window.setInterval(() => {
-            this._btCharacteristic.writeValue(Uint8Array.of(p))
-            count += 1;
-            if (count === iterations) {
-              window.clearInterval(interval);
-            }
-          }, 900); 
+          let prom = new Promise((resolve,reject) => {
+
+            let interval = window.setInterval(() => {
+              this._btCharacteristic.writeValue(Uint8Array.of(p))
+              count += 1;
+              if (count === iterations) {
+                window.clearInterval(interval);
+                window.setTimeout(()=> {
+                  resolve();
+                }, 600)
+              }
+            }, 900); 
+
+          });
+          return prom;
         } else {
 
           this._btCharacteristic.writeValue(Uint8Array.of(p))
